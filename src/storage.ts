@@ -3,6 +3,7 @@ import type { MangaProject } from './model';
 const DB_NAME = 'manga-studio-unlimited';
 const DB_VERSION = 1;
 const STORE_NAME = 'projects';
+let writeQueue: Promise<void> = Promise.resolve();
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -38,7 +39,7 @@ export async function listProjects(): Promise<MangaProject[]> {
   }
 }
 
-export async function saveProject(project: MangaProject): Promise<void> {
+async function persistProject(project: MangaProject): Promise<void> {
   const db = await openDatabase();
   try {
     await new Promise<void>((resolve, reject) => {
@@ -53,7 +54,15 @@ export async function saveProject(project: MangaProject): Promise<void> {
   }
 }
 
+export function saveProject(project: MangaProject): Promise<void> {
+  const operation = writeQueue.then(() => persistProject(project));
+  // A falha de uma gravação não deve bloquear as próximas gravações.
+  writeQueue = operation.catch(() => undefined);
+  return operation;
+}
+
 export async function deleteProject(id: string): Promise<void> {
+  await writeQueue;
   const db = await openDatabase();
   try {
     await new Promise<void>((resolve, reject) => {
