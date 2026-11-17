@@ -15,14 +15,28 @@ describe('modelo de projeto', () => {
     expect(createProject('   ').title).toBe('Meu mangá');
   });
 
-  it('rejeita versão desconhecida e elementos com dimensões inválidas', () => {
+  it('rejeita versão desconhecida, dimensões inválidas e cores não permitidas', () => {
     const project = createProject('Teste');
     expect(isMangaProject({ ...project, schemaVersion: 99 })).toBe(false);
-    const invalid = {
+    const invalidWidth = {
       ...project,
       pages: [{ ...project.pages[0], elements: [{ ...project.pages[0].elements[0], width: 'grande' }] }],
     };
-    expect(isMangaProject(invalid)).toBe(false);
+    expect(isMangaProject(invalidWidth)).toBe(false);
+    const invalidColor = {
+      ...project,
+      pages: [{ ...project.pages[0], elements: [{ ...project.pages[0].elements[0], fill: 'url(https://example.invalid)' }] }],
+    };
+    expect(isMangaProject(invalidColor)).toBe(false);
+  });
+
+  it('rejeita coleções acima dos limites de segurança', () => {
+    const project = createProject('Teste');
+    expect(isMangaProject({ ...project, pages: Array(201).fill(project.pages[0]) })).toBe(false);
+    expect(isMangaProject({
+      ...project,
+      pages: [{ ...project.pages[0], elements: Array(501).fill(project.pages[0].elements[0]) }],
+    })).toBe(false);
   });
 
   it('rejeita valores que não são objetos de projeto', () => {
