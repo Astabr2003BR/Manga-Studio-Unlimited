@@ -5,6 +5,12 @@ const DB_VERSION = 1;
 const STORE_NAME = 'projects';
 let writeQueue: Promise<void> = Promise.resolve();
 
+function enqueueWrite<T>(operation: () => Promise<T>): Promise<T> {
+  const result = writeQueue.then(operation);
+  writeQueue = result.then(() => undefined, () => undefined);
+  return result;
+}
+
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (!('indexedDB' in globalThis)) {
@@ -25,6 +31,7 @@ function openDatabase(): Promise<IDBDatabase> {
 }
 
 export async function listProjects(): Promise<MangaProject[]> {
+  await writeQueue;
   const db = await openDatabase();
   try {
     return await new Promise((resolve, reject) => {
@@ -55,24 +62,22 @@ async function persistProject(project: MangaProject): Promise<void> {
 }
 
 export function saveProject(project: MangaProject): Promise<void> {
-  const operation = writeQueue.then(() => persistProject(project));
-  // A falha de uma gravação não deve bloquear as próximas gravações.
-  writeQueue = operation.catch(() => undefined);
-  return operation;
+  return enqueueWrite(() => persistProject(project));
 }
 
-export async function deleteProject(id: string): Promise<void> {
-  await writeQueue;
-  const db = await openDatabase();
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction(STORE_NAME, 'readwrite');
-      transaction.objectStore(STORE_NAME).delete(id);
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error ?? new Error('Falha ao excluir projeto.'));
-      transaction.onabort = () => reject(transaction.error ?? new Error('Exclusão cancelada.'));
-    });
-  } finally {
-    db.close();
-  }
+export function deleteProject(id: string): Promise<void> {
+  return enqueueWrite(async () => {
+    const db = await openDatabase();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction(STORE_NAME, 'readwrite');
+        transaction.objectStore(STORE_NAME).delete(id);
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error ?? new Error('Falha ao excluir projeto.'));
+        transaction.onabort = () => reject(transaction.error ?? new Error('Exclusão cancelada.'));
+      });
+    } finally {
+      db.close();
+    }
+  });
 }
