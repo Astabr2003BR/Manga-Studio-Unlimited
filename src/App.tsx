@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ChangeEvent } from 'react';
+import type { ChangeEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { createId, createProject, isMangaProject } from './model';
 import type { MangaElement, MangaProject } from './model';
 import { deleteProject, listProjects, saveProject } from './storage';
@@ -12,6 +12,8 @@ export default function App() {
   const [status, setStatus] = useState('Carregando projetos locais…');
   const [error, setError] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const dragRef = useRef<{ id: string; offsetX: number; offsetY: number; pointerId: number } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -94,6 +96,30 @@ export default function App() {
       id: createId(), kind: 'text', x: 100, y: 100 + page.elements.length * 18,
       width: 500, height: 90, text: text.trim(), fill: '#ffffff',
     }]);
+  }
+
+  function beginDrag(event: ReactPointerEvent<SVGGElement>, element: MangaElement) {
+    const svg = svgRef.current;
+    const matrix = svg?.getScreenCTM();
+    if (!svg || !matrix) return;
+    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
+    dragRef.current = { id: element.id, offsetX: point.x - element.x, offsetY: point.y - element.y, pointerId: event.pointerId };
+    svg.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  }
+
+  function moveDraggedElement(event: ReactPointerEvent<SVGSVGElement>) {
+    const drag = dragRef.current;
+    const matrix = event.currentTarget.getScreenCTM();
+    if (!drag || !matrix || drag.pointerId !== event.pointerId) return;
+    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
+    updateElement(drag.id, { x: Math.round(point.x - drag.offsetX), y: Math.round(point.y - drag.offsetY) });
+  }
+
+  function endDrag(event: ReactPointerEvent<SVGSVGElement>) {
+    if (dragRef.current?.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   }
 
   function updateElement(id: string, patch: Partial<MangaElement>) {
@@ -206,17 +232,17 @@ export default function App() {
             </aside>
             <div className="canvas-stage">
               <div className="page-canvas">
-                <svg viewBox="0 0 1080 1350" role="img" aria-label="Prévia editável da primeira página">
+                <svg ref={svgRef} viewBox="0 0 1080 1350" role="img" aria-label="Prévia editável da primeira página" onPointerMove={moveDraggedElement} onPointerUp={endDrag} onPointerCancel={endDrag}>
                   <rect width="1080" height="1350" fill="#090d15" />
                   {page?.elements.map((element) => element.kind === 'text' ? (
-                    <g key={element.id}>
+                    <g key={element.id} onPointerDown={(event) => beginDrag(event, element)} className="canvas-element">
                       <rect x={element.x} y={element.y} width={element.width} height={element.height} rx="22" fill="#f7f5ef" />
                       <foreignObject x={element.x + 12} y={element.y + 10} width={element.width - 24} height={element.height - 20}>
                         <div className="svg-text">{element.text}</div>
                       </foreignObject>
                     </g>
                   ) : (
-                    <g key={element.id}>
+                    <g key={element.id} onPointerDown={(event) => beginDrag(event, element)} className="canvas-element">
                       <rect x={element.x} y={element.y} width={element.width} height={element.height} fill={element.fill ?? '#26394b'} stroke="#f5f2e9" strokeWidth="10" />
                       <text x={element.x + 22} y={element.y + 42} fill="#d9e8f7" fontSize="24">QUADRO</text>
                     </g>
